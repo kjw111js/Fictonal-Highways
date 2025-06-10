@@ -1,0 +1,232 @@
+<?php
+use Drupal\Core\Render\Markup;
+
+function geoFields() {
+  $geoFields = array(
+    'field_decommissioned_sw_geo',
+    'field_decommissioned_ne_geo',
+    'field_existing_sw_geo',
+    'field_existing_ne_geo',
+    'field_new_sw_geo',
+    'field_new_ne_geo'
+  );
+
+  return $geoFields;
+}
+
+function canusEdit($canusForm) {
+  $canusForm['title']['widget'][0]['value']['#default_value'] = trim(preg_replace('/Auxiliary|Primary /', '', $canusForm['field_type']['widget']['#default_value'][0]) . ' ' . $canusForm['field_number']['widget'][0]['value']['#default_value']);
+  $canusForm['#attached']['library'][] = 'canus/canusEdit';
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function canus_form_node_route_edit_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  $form['title']['widget'][0]['value']['#default_value'] = trim(preg_replace('/Auxiliary|Primary /', '', $form['field_type']['widget']['#default_value'][0]) . ' ' . $form['field_number']['widget'][0]['value']['#default_value']);
+  $form['#attached']['library'][] = 'canus/canusEdit';
+  $listFields = ['new_banner', 'new_sw_terminus', 'new_midpoint', 'new_ne_terminus', 'new_sw_distance', 'new_ne_distance', 'new_center_lat', 'new_center_long', 'new_zoom', 'existing_banner', 'existing_sw_terminus', 'existing_midpoint', 'existing_ne_terminus', 'existing_sw_distance', 'existing_ne_distance', 'existing_center_lat', 'existing_center_long', 'existing_zoom', 'decommissioned_banner', 'decommissioned_sw_terminus', 'decommissioned_midpoint', 'decommissioned_ne_terminus', 'decommissioned_sw_distance', 'decommissioned_ne_distance', 'decommissioned_center_lat', 'decommissioned_center_long', 'decommissioned_zoom'];
+  foreach ($listFields as $roField) {
+    $roField = 'field_' . $roField;
+    $form[$roField]['widget'][0]['value']['#attributes']['readonly'] = 'readonly';
+  }
+  $form['field_existing_banner']['#prefix'] = Markup::create('<br><hr><br><h2>Existing Segments</h2><br><button class="addSegment button" type="button">Add Segment</button><br><div class="bannerWrapper" id="existingBW"><h4 class="label">Existing Banner</h4><br><label for="existingBanner0">Segment 1</label><select class="bannerControl" id="existingBanner0"><option value="None" selected="selected">None</option><option value="Alternate">Alternate</option><option value="Business">Business</option><option value="Bypass">Bypass</option><option value="Northern">Northern</option><option value="Central">Central</option><option value="Eastern">Eastern</option><option value="Southern">Southern</option><option value="Western">Western</option><option value="Ferry">Ferry</option></select></div>');
+  $form['field_new_banner']['#prefix'] = Markup::create('<br><hr><br><h2>New Segments</h2><br><button class="addSegment button" type="button">Add Segment</button><br><div class="bannerWrapper" id="newBW"><h4 class="label">New Banner</h4><br><label for="newBanner0">Segment 1</label><select class="bannerControl" id="newBanner0"><option value="None" selected="selected">None</option><option value="Alternate">Alternate</option><option value="Business">Business</option><option value="Bypass">Bypass</option><option value="Northern">Northern</option><option value="Central">Central</option><option value="Eastern">Eastern</option><option value="Southern">Southern</option><option value="Western">Western</option><option value="Ferry">Ferry</option></select></div>');
+  $form['field_decommissioned_banner']['#prefix'] = Markup::create('<br><hr><br><h2>Decommissioned Segments</h2><br><button class="addSegment button" type="button">Add Segment</button><br><div class="bannerWrapper" id="decommissionedBW"><h4 class="label">Decommissioned Banner</h4><br><label for="decommissionedBanner0">Segment 1</label><select class="bannerControl" id="decommissionedBanner0"><option value="None" selected="selected">None</option><option value="Alternate">Alternate</option><option value="Business">Business</option><option value="Bypass">Bypass</option><option value="Northern">Northern</option><option value="Central">Central</option><option value="Eastern">Eastern</option><option value="Southern">Southern</option><option value="Western">Western</option><option value="Ferry">Ferry</option></select></div>');
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_view().
+ */
+function canus_node_view(array & $build, \Drupal\Core\Entity\EntityInterface $entity, \Drupal\Core\Entity\Display\EntityViewDisplayInterface $display, $view_mode) {
+
+  if ($entity->bundle() == 'route') {
+    $build['#attached']['library'][] = 'canus/canus';
+    $setGeo = array();
+    $defineGeo = geoFields();
+    foreach ($defineGeo as $typeGeo) {
+      if ($entity->get($typeGeo) != null) {
+        $mapData = new stdClass;
+        $getSegments = array();
+        foreach ($entity->get($typeGeo) as $segmentGeo) {
+          $featureData = new stdClass;
+          $lineData = new stdClass;
+          $coordsData = array();
+          $geoData = json_decode($segmentGeo->value);
+          foreach ($geoData->data as $getCoords) {
+            array_push($coordsData, array(
+              $getCoords->longitude,
+              $getCoords->latitude
+            ));
+          }
+          $lineData->coordinates = $coordsData;
+          $lineData->type = 'LineString';
+          $featureData->geometry = $lineData;
+          $featureData->type = 'Feature';
+          array_push($getSegments, $featureData);
+        }
+        $mapData->features = $getSegments;
+        $mapData->type = 'FeatureCollection';
+        $setGeo->$typeGeo = $mapData;
+        array_push($setGeo, $mapData);
+      }
+    }
+    $build['#attached']['drupalSettings']['canus']['geodata'] = json_encode($setGeo);
+    return $build;
+  }
+}
+
+function canus_node_presave(\Drupal\Core\Entity\EntityInterface $entity) {
+  //Get all routes
+  $idRoutes = \Drupal::entityQuery('node')->condition('type', 'route')
+    ->execute();
+  $loadRoutes = \Drupal\node\Entity\Node::loadMultiple($idRoutes);
+
+  //Find family
+  $setFamily = new stdClass;
+  $setFamily->children = null;
+  $setFamily->parent = null;
+  $setFamily->siblings = null;
+  foreach ($loadRoutes as $getRoute) {
+    if ($entity->get('field_number')->value != $getRoute->get('field_number')
+      ->value) {
+      if ((strlen($entity->get('field_number')
+        ->value) == 2 && str_contains($getRoute->get('field_number')->value, $entity->get('field_number')
+        ->value) == true) || (strlen($getRoute->get('field_number')
+        ->value) == 1 && str_contains($getRoute->get('field_number')->value, '0' . $entity->get('field_number')
+        ->value) == true)) {
+        if ($setFamily->children == null) {
+          $setFamily->children = [];
+        }
+        array_push($setFamily->children, (int)$getRoute->get('field_number')
+          ->value);
+        sort($setFamily->children);
+      }
+      if (str_contains($entity->get('field_type')->value, 'Auxiliary') == true && str_contains($entity->get('field_number')->value, $getRoute->get('field_number')
+        ->value) == true) {
+        $setFamily->parent = (int)$getRoute->get('field_number')->value;
+      }
+      if (str_contains($entity->get('field_type')->value, 'Auxiliary') == true && str_contains($getRoute->get('field_type')->value, 'Auxiliary') == true && substr($entity->get('field_number')->value, -2) == substr($getRoute->get('field_number')->value, -2)) {
+        if ($setFamily->siblings == null) {
+          $setFamily->siblings = [];
+        }
+        array_push($setFamily->siblings, (int)$getRoute->get('field_number')
+          ->value);
+        sort($setFamily->siblings);
+      }
+    }
+  }
+  $entity->set('field_family', json_encode($setFamily));
+
+  $getGeo = geoFields();
+
+  //Find min and max points
+  $minLat = 90;
+  $minLong = 180;
+  $maxLat = - 90;
+  $maxLong = - 180;
+
+  foreach ($getGeo as $mmGeo) {
+    foreach ($entity->get($mmGeo)->getValue() as $mmType) {
+      $mmSegment = json_decode($mmType['value']);
+      foreach ($mmSegment as $mmData) {
+        foreach ($mmData as $mmCoords) {
+          if ($mmCoords->latitude < $minLat) {
+            $minLat = $mmCoords->latitude;
+          }
+          if ($mmCoords->longitude < $minLong) {
+            $minLong = $mmCoords->longitude;
+          }
+          if ($mmCoords->latitude > $maxLat) {
+            $maxLat = $mmCoords->latitude;
+          }
+          if ($mmCoords->longitude > $maxLong) {
+            $maxLong = $mmCoords->longitude;
+          }
+        }
+      }
+    }
+  }
+
+  $entity->set('field_minimum_latitude', $minLat);
+  $entity->set('field_minimum_longitude', $minLong);
+  $entity->set('field_maximum_latitude', $maxLat);
+  $entity->set('field_maximum_longitude', $maxLong);
+
+  //Find geography
+  $defineGeo = geoFields();
+  $typeCollect = array();
+  foreach ($defineGeo as $typeGeo) {
+    if ($entity->get($typeGeo) != null) {
+      $segmentCollect = array();
+      foreach ($entity->get($typeGeo) as $segmentGeo) {
+        $routeCollect = array();
+        $parseGeo = json_decode($segmentGeo->value);
+        $newGeo = 0;
+        $startSplit = 0;
+        if (property_exists($parseGeo->data[count($parseGeo->data) - 1], 'state')) {
+          foreach ($parseGeo->data as $parseKey => $parseCoords) {
+            if ($parseKey > 0) {
+              if ((property_exists($parseCoords, 'state') && property_exists($parseGeo->data[$parseKey - 1], 'state') && ($parseCoords->state != $parseGeo->data[$parseKey - 1]->state || $parseCoords->upperAdmin != $parseGeo->data[$parseKey - 1]->upperAdmin || $parseCoords->lowerAdmin != $parseGeo->data[$parseKey - 1]->lowerAdmin || $parseCoords->locality != $parseGeo->data[$parseKey - 1]->locality)) || $parseKey == count($parseGeo->data) - 1) {
+                if ($parseKey == count($parseGeo->data) - 1) {
+                  $collectCoords = $parseCoords;
+                  $collectCoords->distance = $parseCoords->distance - $parseGeo->data[$newGeo]->distance + $startSplit;
+                }
+                else {
+                  $collectCoords = $parseGeo->data[$parseKey - 1];
+                  $endSplit = ($parseCoords->distance - $parseGeo->data[$parseKey - 1]->distance) / 2;
+                  $collectCoords->distance = $parseGeo->data[$parseKey - 1]->distance - $parseGeo->data[$newGeo]->distance + $startSplit + $endSplit;
+                  $newGeo = $parseKey;
+                  $startSplit = $endSplit;
+                }
+                unset($collectCoords->latitude);
+                unset($collectCoords->longitude);
+                unset($collectCoords->spot);
+                array_push($routeCollect, $collectCoords);
+              }
+            }
+          }
+        }
+        if (count($routeCollect) > 0) {
+          if (str_contains($typeGeo, 'sw')) {
+            $routeCollect = array_reverse($routeCollect);
+          }
+          array_push($segmentCollect, $routeCollect);
+        }
+      }
+      if (count($segmentCollect) > 0) {
+        $setType = new stdClass;
+        $setType->type = $typeGeo;
+        $setType->places = $segmentCollect;
+        array_push($typeCollect, $setType);
+      }
+    }
+  }
+  foreach ($typeCollect as $refineGeoOuter) {
+    if (str_contains($refineGeoOuter->type, 'ne_')) {
+      foreach ($typeCollect as $refineGeoInner) {
+        dpr($refineGeoOuter->type . ' /// ' . substr($refineGeoInner->type, 0, strpos($refineGeoInner->type, 'ne_')) . 'sw' . substr($refineGeoInner->type, strpos($refineGeoInner->type, 'ne_') + strlen('ne_')));
+        if ($refineGeoInner->type == substr($refineGeoInner->type, 0, strpos($refineGeoInner->type, 'ne_')) . 'sw' . substr($refineGeoInner->type, strpos($refineGeoInner->type, 'ne_') + strlen('ne'))) {
+//Find median geography
+        }
+      }
+    }
+  }
+  exit;
+}
+
+function calcDistance($lat1, $lng1, $lat2, $lng2) {
+  $radlat1 = pi() * $lat1 / 180;
+  $radlat2 = pi() * $lat2 / 180;
+  $theta = $lng1 - $lng2;
+  $radtheta = pi() * $theta / 180;
+  $dist = sin($radlat1) * sin($radlat2) + cos($radlat1) * cos($radlat2) * cos($radtheta);
+  if ($dist > 1) {
+    $dist = 1;
+  }
+  $dist = acos($dist);
+  $dist = $dist * 180 / pi();
+  $dist = $dist * 60 * 1.1515;
+  return round(($dist + PHP_FLOAT_EPSILON) * 100) / 100;
+}
+
