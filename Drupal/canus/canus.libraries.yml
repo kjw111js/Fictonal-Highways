@@ -1,0 +1,20 @@
+canus:
+  version: 1.x
+  css:
+    theme:
+      css/canus.css: {}
+  js:
+    'https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&callback=createMaps': {type: external, attributes: { defer: true, async: true } }
+    js/canus.js: {}
+  dependencies:
+    - core/drupalSettings
+canusEdit:
+  version: 1.x
+  css:
+    theme:
+      css/canusEdit.css: {}
+  js:
+    'https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&callback=initMap': {type: external, attributes: { defer: true, async: true } }
+    js/dist/canusEdit.js: {}
+  dependencies:
+    - core/drupalSettings
