@@ -1,0 +1,5 @@
+name: CANUS Routes
+type: module
+description: App for CANUS routes
+core_version_requirement: ^8.8 || ^9
+package: KJW Zone
